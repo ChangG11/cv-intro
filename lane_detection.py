@@ -105,6 +105,7 @@ def get_slopes_intercepts(lines):
 def detect_lanes(lines):
     """
     Detects lanes from a list of lines by finding pairs that could form lanes.
+    Enhanced to filter out shadow artifacts and non-lane features.
     
     Args:
         lines: the list of lines to process
@@ -118,34 +119,62 @@ def detect_lanes(lines):
     # Get slopes and intercepts
     slopes, intercepts = get_slopes_intercepts(lines)
     
+    # Filter out lines that are likely shadows or artifacts
+    filtered_lines = []
+    filtered_slopes = []
+    filtered_intercepts = []
+    
+    for i, line in enumerate(lines):
+        slope = slopes[i]
+        
+        # Skip lines that are too vertical or too horizontal (likely shadows)
+        if slope == float('inf') or abs(slope) < 0.1 or abs(slope) > 10.0:
+            continue
+            
+        # Calculate line length - filter out very short lines
+        x1, y1, x2, y2 = line[0]
+        length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        if length < 50:  # Skip very short lines
+            continue
+            
+        filtered_lines.append(line)
+        filtered_slopes.append(slope)
+        filtered_intercepts.append(intercepts[i])
+    
+    if len(filtered_lines) < 2:
+        return []
+    
     lanes = []
     used_indices = set()
     
-    # Check each pair of lines to see if they form a lane
-    for i in range(len(lines)):
+    # Check each pair of filtered lines to see if they form a lane
+    for i in range(len(filtered_lines)):
         if i in used_indices:
             continue
             
-        for j in range(i + 1, len(lines)):
+        for j in range(i + 1, len(filtered_lines)):
             if j in used_indices:
                 continue
             
-            # Check if this pair could be a lane
-            slope1, slope2 = slopes[i], slopes[j]
+            slope1, slope2 = filtered_slopes[i], filtered_slopes[j]
             
-            # Skip if either line is vertical
-            if slope1 == float('inf') or slope2 == float('inf'):
-                continue
+            # Enhanced lane detection criteria:
+            # 1. Slopes have opposite signs (one positive, one negative)
+            # 2. Slopes are reasonably similar in magnitude
+            # 3. Lines are positioned appropriately (not too close together)
+            # if (slope1 * slope2 < 0 and  # Opposite signs
+            # 0.2 <= abs(slope1) <= 5.0 and  # Reasonable slope range
+            # 0.2 <= abs(slope2) <= 5.0 and  # Reasonable slope range
+            # abs(abs(slope1) - abs(slope2)) < 3.0):  # Similar magnitudes
             
-            # Check if slopes have opposite signs (one positive, one negative)
-            # and are reasonably similar in magnitude
-            if (slope1 * slope2 < 0 and  # Opposite signs
-                0.1 <= abs(slope1) <= 5.0 and  # Reasonable slope range
-                0.1 <= abs(slope2) <= 5.0 and  # Reasonable slope range
-                abs(abs(slope1) - abs(slope2)) < 2.0):  # Similar magnitudes
-                
-                # This pair forms a potential lane
-                lanes.append([lines[i], lines[j]])
+            # Check if lines are spatially separated (not shadow artifacts)
+            line1, line2 = filtered_lines[i], filtered_lines[j]
+            x1_mid = (line1[0][0] + line1[0][2]) / 2
+            x2_mid = (line2[0][0] + line2[0][2]) / 2
+            
+            # Lines should be separated by reasonable distance
+            if abs(x1_mid - x2_mid) < 10:  # max separation
+                lanes.append([filtered_lines[i], filtered_lines[j]])
                 used_indices.add(i)
                 used_indices.add(j)
                 break  # Move to next line
